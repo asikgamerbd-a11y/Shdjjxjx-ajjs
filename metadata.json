@@ -1,0 +1,6 @@
+{
+  "name": "DXA Number Bot",
+  "description": "A Telegram bot for managing and allocating virtual numbers for various services with an integrated admin panel and force join requirements.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
