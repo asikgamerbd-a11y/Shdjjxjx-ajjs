@@ -118,13 +118,13 @@ def update_menu(chat_id, text, reply_markup):
     last_id = state.get("lastMenuMsgId")
     if last_id:
         try:
-            bot.edit_message_text(final_text, chat_id, last_id, reply_markup=reply_markup)
+            bot.edit_message_text(final_text, chat_id, last_id, reply_markup=reply_markup, parse_mode="HTML")
             return
         except Exception as err:
             if "message is not modified" in str(err): return
             try: bot.delete_message(chat_id, last_id)
             except: pass
-    sent = bot.send_message(chat_id, final_text, reply_markup=reply_markup)
+    sent = bot.send_message(chat_id, final_text, reply_markup=reply_markup, parse_mode="HTML")
     if chat_id not in USER_STATES: USER_STATES[chat_id] = {}
     USER_STATES[chat_id]["lastMenuMsgId"] = sent.message_id
 
