@@ -8,7 +8,7 @@ import html
 import re
 from telebot import types
 
-# --- কনফিগারেশন (মেইন অ্যাপের মতো) ---
+# --- কনফিগারেশন (হুবহু মেইন অ্যাপের মতো) ---
 BOT_TOKEN = "8716745260:AAGPEuKxQgK3Vv7kTQ5vmlup89acZ9trLNQ"
 ADMIN_ID = 8197284774
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
@@ -48,20 +48,17 @@ PREMIUM_EMOJIS = {
     "⚠️": "5336944168944047463", "🚫": "5336997731481193790"
 }
 
-def escape_html(text):
-    return html.escape(text)
-
 def e(input_str):
-    # পরিষ্কার করছি ভেরিয়েশন সিলেক্টর এবং স্পেস (Critical for 🔗 and 📢)
+    # সরিয়ে দিচ্ছি Variation Selector-16 (FE0F) যা ম্যাচিং সমস্যা করে
     s = input_str.strip().replace('\ufe0f', '')
     if s in PREMIUM_EMOJIS:
         emoji_id = PREMIUM_EMOJIS[s]
-        is_name = len(s) > 2 and re.match(r'^[A-Za-z0-9 /]+$', s) # Correct regex
+        is_name = len(s) > 2 and re.match(r'^[A-Za-z0-9 /]+$', s)
         base = "🖥" if is_name else s
         return f'<tg-emoji emoji-id="{emoji_id}">{base}</tg-emoji>'
     return input_str
 
-# --- ডাটাবেস ---
+# --- ডাটাবেস Helpers ---
 DATA_DIR = "data"
 if not os.path.exists(DATA_DIR): os.makedirs(DATA_DIR)
 
@@ -76,7 +73,7 @@ def write_json(filename, data):
     path = os.path.join(DATA_DIR, filename)
     with open(path, "w", encoding="utf-8") as f: json.dump(data, f, indent=2, ensure_ascii=False)
 
-# --- লজিক ---
+# --- গ্লোবাল স্টেট ---
 USER_STATES = {}
 
 def expiry_checker():
@@ -129,7 +126,7 @@ def update_menu(chat_id, text, reply_markup):
     if chat_id not in USER_STATES: USER_STATES[chat_id] = {}
     USER_STATES[chat_id]["lastMenuMsgId"] = sent.message_id
 
-# --- মেনু ডিজাইনস ---
+# --- মেনুFunction (মেইন অ্যাপের মতো হুবহু) ---
 
 def show_start(chat_id, first_name, is_update=False):
     line1 = e("🔥") + " <b>DXA NUMBER BOT</b> " + e("🔥") + "\n"
@@ -141,6 +138,9 @@ def show_start(chat_id, first_name, is_update=False):
     text = line1 + line2 + line3 + line4 + line5 + line6
     
     markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("Get Number 📱", callback_data="back_to_services"))
+    markup.add(types.InlineKeyboardButton("Stats 📊", callback_data="stats"))
+
     if is_update:
         update_menu(chat_id, text, markup)
     else:
@@ -148,12 +148,14 @@ def show_start(chat_id, first_name, is_update=False):
         if state.get("lastMenuMsgId"):
             try: bot.delete_message(chat_id, state["lastMenuMsgId"])
             except: pass
-        sent = bot.send_message(chat_id, text, reply_markup=get_main_menu_keyboard(chat_id), parse_mode="HTML")
+        sent = bot.send_message(chat_id, text, reply_markup=markup, parse_mode="HTML")
         USER_STATES[chat_id] = { **state, "lastMenuMsgId": sent.message_id }
 
 def show_services(chat_id):
     nums = read_json("numbers.json")
-    services = sorted(list(set([n.get("service") for n in nums if not n.get("used")])))
+    available = [n for n in nums if not n.get("used")]
+    services = sorted(list(set([n.get("service") for n in available])))
+    
     markup = types.InlineKeyboardMarkup()
     if not services:
         text = e("❌") + " No numbers available at the moment."
@@ -195,9 +197,24 @@ def show_admin_panel(chat_id):
     markup.add(types.InlineKeyboardButton("🔙 Back", callback_data="go_home"))
     update_menu(chat_id, text, markup)
 
+def show_support(chat_id, first_name):
+    text = e("🔥") + " <b>DXA SUPPORT CENTER</b> " + e("🔥") + "\n" + \
+           "━━━━━━━━━━━\n" + \
+           e("👋") + f" Hello, <b>{first_name}</b>! Tell me how I can help.\n\n" + \
+           e("📌") + " Contact our admin for assistance.\n" + \
+           "━━━━━━━━━━━\n" + \
+           e("😒") + " POWERED BY DXA UNIVERSE"
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("💬 Support Center", url="https://t.me/developer_x_asik"))
+    markup.add(types.InlineKeyboardButton("🔙 Back", callback_data="go_home"))
+    update_menu(chat_id, text, markup)
+
+# --- Handlers ---
+
 @bot.message_handler(commands=['start'])
 def handle_start(msg):
-    uid, chat_id = msg.from_user.id, msg.chat.id
+    uid = msg.from_user.id
+    if not uid: return
     state = USER_STATES.get(uid, {})
     if state.get("lastMenuMsgId"):
         try: bot.delete_message(uid, state["lastMenuMsgId"])
@@ -226,25 +243,56 @@ def handle_cb(call):
         bot.answer_callback_query(call.id, "❌ Join all channels first!", show_alert=True)
         return
 
+    if data in ["go_home", "admin_panel_back", "admin_panel"]:
+        if uid in USER_STATES: USER_STATES[uid]["waitingFor"] = None
+
     if data == "check_join":
         if check_force_join(uid):
             try: bot.delete_message(chat_id, call.message.message_id)
             except: pass
             show_start(uid, call.from_user.first_name)
+        else: bot.answer_callback_query(call.id, "❌ Join all channels first!", show_alert=True)
     elif data == "go_home":
         show_start(chat_id, call.from_user.first_name, True)
     elif data == "back_to_services":
         show_services(chat_id)
-    elif data.startswith("sel_country:"):
-        svc, country = data.split(":")[1], data.split(":")[2]
+    elif data == "stats":
         nums = read_json("numbers.json")
-        avail = [n for n in nums if not n.get("used") and n.get("service") == svc and n.get("country") == country]
-        if len(avail) < 3: return bot.answer_callback_query(call.id, "❌ No numbers!", show_alert=True)
-        
+        text = e("📊") + " <b>TOTAL STATISTICS</b>\n━━━━━━━━━━━\n" + \
+               f"  {e('📱')}  Numbers     »  {len(nums)}\n" + \
+               f"  {e('✅')}  Available   »  {len([n for n in nums if not n['used']])}\n" + \
+               f"  {e('👤')}  Users       »  {len(read_json('users.json'))}\n" + \
+               "━━━━━━━━━━━"
+        markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back", callback_data="go_home"))
+        update_menu(chat_id, text, markup)
+    elif data.startswith("sel_service:"):
+        svc = data.split(":")[1]
+        nums = [n for n in read_json("numbers.json") if not n.get("used") and n.get("service") == svc]
+        countries = sorted(list(set([n.get("country") for n in nums])))
+        markup = types.InlineKeyboardMarkup()
+        for c in countries: markup.add(types.InlineKeyboardButton(f"📍 {c}", callback_data=f"sel_country:{svc}:{c}"))
+        markup.add(types.InlineKeyboardButton("🔙 Back", callback_data="back_to_services"))
+        update_menu(chat_id, e("📍") + f" <b>Select Country for {svc}:</b>", markup)
+    elif data.startswith("sel_country:"):
+        now = time.time() * 1000
+        last = USER_STATES.get(uid, {}).get("lastReqTime", 0)
+        if (now - last) / 1000 < 10:
+            bot.answer_callback_query(call.id, f"⌛ Wait {int(10-(now-last)/1000)}s!", show_alert=True)
+            return
+            
+        svc, country = data.split(":")[1], data.split(":")[2]
+        all_nums = read_json("numbers.json")
+        avail = [n for n in all_nums if not n.get("used") and n.get("service") == svc and n.get("country") == country]
+        if len(avail) < 3:
+            bot.answer_callback_query(call.id, "❌ Not enough numbers!", show_alert=True)
+            return
+            
+        USER_STATES[uid] = { **USER_STATES.get(uid, {}), "lastReqTime": now }
         sel = random.sample(avail, 3)
-        for n in nums:
-            if n.get("id") in [s.get("id") for s in sel]: n["used"] = True; n["allocatedAt"] = time.time()*1000
-        write_json("numbers.json", nums)
+        sel_ids = [s.get("id") for s in sel]
+        for n in all_nums:
+            if n.get("id") in sel_ids: n["used"] = True; n["allocatedAt"] = now
+        write_json("numbers.json", all_nums)
         
         icons = [e("1️⃣"), e("2️⃣"), e("3️⃣")]
         fmt = "\n".join([f"{icons[i]} <code>{n.get('number')}</code>" for i, n in enumerate(sel)])
@@ -259,14 +307,76 @@ def handle_cb(call):
                e("😒") + " POWERED BY DXA UNIVERSE\n" + \
                "━━━━━━━━━━━"
         
+        cfg = get_bot_config()
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔄 Change", callback_data=f"sel_country:{svc}:{country}"))
-        markup.add(types.InlineKeyboardButton("💬 OTP Group", url=get_bot_config()["otpLink"]))
+        markup.add(types.InlineKeyboardButton("🔄 Change Number", callback_data=f"sel_country:{svc}:{country}"))
+        markup.add(types.InlineKeyboardButton("💬 OTP Group", url=cfg["otpLink"]))
         markup.add(types.InlineKeyboardButton("🔙 Back", callback_data="back_to_services"))
         update_menu(chat_id, text, markup)
+    elif data == "admin_upload":
+        USER_STATES[uid] = { **USER_STATES.get(uid, {}), "waitingFor": "upload_file" }
+        update_menu(chat_id, e("📤") + " <b>UPLOAD NUMBERS</b>\n━━━━━━━━━━━━━\nPlease send the .txt file.", types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Cancel", callback_data="admin_panel")))
+    elif data == "admin_broadcast":
+        USER_STATES[uid] = { **USER_STATES.get(uid, {}), "waitingFor": "broadcast_msg" }
+        update_menu(chat_id, e("📢") + " <b>BROADCAST</b>\n━━━━━━━━━━━━━\nSend message to broadcast.", types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Cancel", callback_data="admin_panel")))
+    elif data == "admin_otp_link":
+        USER_STATES[uid] = { **USER_STATES.get(uid, {}), "waitingFor": "update_otp_link" }
+        cfg = get_bot_config()
+        update_menu(chat_id, e("🔗") + " <b>UPDATE OTP LINK</b>\n━━━━━━━━━━━━━\nCurrent: " + cfg['otpLink'] + "\n\nPlease send the new link.", types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Cancel", callback_data="admin_panel")))
+    elif data == "admin_delete_files":
+        files = read_json("files.json")
+        if not files: bot.answer_callback_query(call.id, "No files found!", show_alert=True); return
+        markup = types.InlineKeyboardMarkup()
+        for f in files: markup.add(types.InlineKeyboardButton(f"❌ {f['fileName']}", callback_data=f"del_file:{f['id']}"))
+        markup.add(types.InlineKeyboardButton("🔙 Back", callback_data="admin_panel"))
+        update_menu(chat_id, e("🗑") + " <b>DELETE FILES</b>\n━━━━━━━━━━━━━", markup)
+    elif data.startswith("del_file:"):
+        fid = data.split(":")[1]
+        files, nums = read_json("files.json"), read_json("numbers.json")
+        write_json("files.json", [f for f in files if str(f['id']) != fid])
+        write_json("numbers.json", [n for n in nums if str(n.get('fileId')) != fid])
+        bot.answer_callback_query(call.id, "✅ Deleted!")
+        show_admin_panel(chat_id)
     elif data == "admin_panel" or data == "admin_panel_back": show_admin_panel(chat_id)
     try: bot.answer_callback_query(call.id)
     except: pass
+
+@bot.message_handler(func=lambda m: True, content_types=['text', 'document'])
+def handle_msg(msg):
+    uid, chat_id = msg.from_user.id, msg.chat.id
+    if msg.text and msg.text.startswith('/'): return
+    
+    state = USER_STATES.get(uid, {})
+    wf = state.get("waitingFor")
+    
+    if msg.text == "📱 Get Number": show_services(chat_id)
+    elif msg.text == "🛠 Support": show_support(chat_id, msg.from_user.first_name)
+    elif msg.text == "👑 Admin Panel" and uid == ADMIN_ID: show_admin_panel(chat_id)
+    elif wf == "update_otp_link" and msg.text:
+        write_json("config.json", {"otpLink": msg.text})
+        USER_STATES[uid]["waitingFor"] = None
+        bot.send_message(chat_id, "✅ OTP Link updated!", parse_mode="HTML"); show_admin_panel(chat_id)
+    elif wf == "broadcast_msg" and msg.text:
+        users = read_json("users.json")
+        for u in users:
+            try: bot.send_message(u.get("uid"), msg.text, parse_mode="HTML")
+            except: pass
+        USER_STATES[uid]["waitingFor"] = None; bot.send_message(chat_id, "✅ Broadcast Sent!", parse_mode="HTML"); show_admin_panel(chat_id)
+    elif wf == "upload_file" and msg.document:
+        info = bot.get_file(msg.document.file_id)
+        down = bot.download_file(info.file_path)
+        lines = down.decode('utf-8').split('\n')
+        nums, fid = read_json("numbers.json"), int(time.time()*1000)
+        c = 0
+        for l in lines:
+            if l.strip():
+                nums.append({"id": str(random.randint(1000,9999))+"_"+str(int(time.time())), "number": l.strip(), "used": False, "fileId": str(fid), "service": "Imo", "country": "Venezuela"})
+                c += 1
+        write_json("numbers.json", nums)
+        files = read_json("files.json")
+        files.append({"id": str(fid), "fileName": msg.document.file_name, "service": "Imo"})
+        write_json("files.json", files)
+        USER_STATES[uid]["waitingFor"] = None; bot.send_message(chat_id, f"✅ Uploaded {c}!", parse_mode="HTML"); show_admin_panel(chat_id)
 
 print("Bot is running...")
 bot.infinity_polling()
